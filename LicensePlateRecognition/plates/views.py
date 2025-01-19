@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import LicensePlate
 from .utils.plate_recognition import detect_license_plate
 from .utils.google_sheets import save_to_google_sheets
-from .utils.discord_notification import send_message, send_to_discord
+#from .utils.discord_notification import send_message, send_to_discord
 
 
 def license_plate_list(request):
@@ -43,7 +43,7 @@ def upload_image(request):
             detected_plates = detect_license_plate(image_path)
             data = [str(plate) for plate in detected_plates]
             save_to_google_sheets(data)
-            asyncio.run(send_message(1323298372202790944, f'Detected Plates: {data}'))
+            #asyncio.run(send_message(1323298372202790944, f'Detected Plates: {data}'))
             return JsonResponse({'plates': data})
         except Exception as e:
             return JsonResponse({'error': f'Error processing image: {str(e)}'}, status=500)
@@ -78,7 +78,7 @@ def license_plate_add(request):
             plate, created = LicensePlate.objects.get_or_create(plate_number=plate_number)
             if created:               
                 save_to_google_sheets(plate_number)               
-                send_to_discord(plate_number)
+               # send_to_discord(plate_number)
                 return JsonResponse({'message': 'Thêm thành công!', 'plate': plate_number}, status=201)
             else:
                 return JsonResponse({'message': 'Biển số đã tồn tại.'}, status=400)
