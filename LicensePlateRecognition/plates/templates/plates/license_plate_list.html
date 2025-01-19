@@ -1,0 +1,656 @@
+{% extends 'plates/base.html' %}
+
+{% block content %}
+<style>
+    #video, #canvas {
+        width: 100%;
+        height: auto;
+        border: 2px solid wight;
+    }
+    #canvas {
+        display: none;
+    }
+</style>
+
+<h1 class="mb-4">License Plate List</h1>
+
+<!-- Thanh tìm kiếm -->
+<form method="get" class="mb-3">
+    <div class="input-group">
+        <input type="text" name="q" class="form-control" placeholder="Tìm kiếm biển số" value="{{ query }}">
+        <button class="btn btn-primary" type="submit">Tìm kiếm</button>
+    </div>
+</form>
+
+<!-- Nút thêm biển số -->
+<button class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#addPlateModal">Thêm Biển Số</button>
+
+<div class="container mt-4">
+    <h1 class="text mb-4">License Plate Recognition System</h1>
+
+    <div class="row">
+        <div class="col-md-8">         
+            <div class="media-container">
+                <video id="mediaDisplay" autoplay class="w-100" style="display: none;"></video>
+                <img id="imagePreview" class="w-100" style="display: none;" class="img-fluid">
+                <canvas id="canvas"  width="400" height="300" style="display: none;"></canvas>
+            </div>
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <button id="cameraBtn" class="btn btn-primary w-100">Open Camera</button>
+                    <button id="stopBtn" class="btn btn-danger w-100" style="display: none;">Close Camera</button>
+                    <button id="captureBtn" class="btn btn-success w-100" style="display: none;">Capture Image</button>
+                </div>
+                <div class="mb-3">
+                    <input type="file" id="mediaInput" class="form-control">
+                    <button id="uploadBtn" class="btn btn-secondary w-100 mt-2">Upload & Detect</button>
+                </div>
+                <div class="mb-3">
+                    <input type="text" id="plateResult" class="form-control" placeholder="Detected Plate Number" readonly>
+                </div>
+                <div class="mb-3">
+                    <button id="addPlateBtn" class="btn btn-success w-100">Add Plate</button>
+                </div>
+                <div id="plateList" class="list-group">
+                    <!-- Dynamically populated list of license plates -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <h2>Detected Plates History</h2>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Plate Number</th>
+                    <th>Time</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="plateTable">
+                {% for plate in plates %}
+                <tr id="row-{{ plate.id }}">
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ plate.plate_number }}</td>
+                    <td>{{ plate.detected_at }}</td>
+                    <td>
+                        <button class="btn btn-warning btn-sm edit-btn" data-id="{{ plate.id }}"
+                                data-plate="{{ plate.plate_number }}">Edit</button>
+                        <button class="btn btn-danger btn-sm delete-btn"
+                                data-id="{{ plate.id }}">Delete</button>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center">Không có biển số nào được thêm.</td>
+                </tr>
+                {% endfor %}
+                
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Thêm Biển Số -->
+
+<div class="modal fade" id="addPlateModal" tabindex="-1" aria-labelledby="addPlateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Thêm Biển Số</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="newPlate" class="form-control" placeholder="Nhập biển số">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="addPlateBtn">Thêm</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Sửa Biển Số -->
+<div class="modal fade" id="editPlateModal" tabindex="-1" aria-labelledby="editPlateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Sửa Biển Số</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="editPlate" class="form-control">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="saveEditBtn">Lưu</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const mediaDisplay = document.getElementById('mediaDisplay');
+            const imagePreview = document.getElementById('imagePreview');
+            const canvas = document.getElementById('canvas');
+            const mediaInput = document.getElementById('mediaInput');
+            const cameraBtn = document.getElementById('cameraBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const captureBtn = document.getElementById('captureBtn');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const plateResult = document.getElementById('plateResult');
+            const plateTable = document.getElementById('plateTable');
+            const newPlateInput = document.getElementById('newPlate');
+            const editPlateInput = document.getElementById('editPlate');
+            const addPlateBtn = document.getElementById('addPlateBtn');
+            const saveEditBtn = document.getElementById('saveEditBtn');
+            let currentEditId = null;
+            let stream = null;
+        
+            async function initCamera() {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    });
+                    mediaDisplay.srcObject = stream;
+                    mediaDisplay.style.display = 'block';
+                    stopBtn.style.display = 'block';
+                    captureBtn.style.display = 'block';
+                    cameraBtn.style.display = 'none';
+                } catch (err) {
+                    console.error('Camera error:', err);
+                    alert('Cannot access camera: ' + err.message);
+                }
+            }
+        
+            function stopCamera() {
+                if (stream) {
+                    const tracks = stream.getTracks();
+                    tracks.forEach(track => track.stop());
+                    mediaDisplay.style.display = 'none';
+                    stopBtn.style.display = 'none';
+                    captureBtn.style.display = 'none';
+                    cameraBtn.style.display = 'block';
+                }
+            }
+        
+            function captureImage() {
+                const context = canvas.getContext('2d');
+                canvas.width = mediaDisplay.videoWidth;
+                canvas.height = mediaDisplay.videoHeight;
+                context.drawImage(mediaDisplay, 0, 0);
+                const dataURL = canvas.toDataURL('image/png');
+                imagePreview.src = dataURL;
+                imagePreview.style.display = 'block';
+                stopCamera();
+            }
+        
+            async function uploadImage(file) {
+                const formData = new FormData();
+                formData.append('image', file);
+        
+                try {
+                    const response = await fetch('/upload/', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        plateResult.value = data.plate_number;
+                        alert('Plate detected: ' + data.plate_number);
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (error) {
+                    console.error('Error uploading image:', error);
+                    alert('Error uploading image');
+                }
+            }
+        
+            async function addPlate(plateNumber) {
+                try {
+                    const response = await fetch('/add/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ plate_number: plateNumber })
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        location.reload();  // Reload to update the list
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (error) {
+                    console.error('Error adding plate:', error);
+                    alert('Error adding plate');
+                }
+            }
+        
+            async function editPlate(plateId, newPlateNumber) {
+                try {
+                    const response = await fetch(`/edit/${plateId}/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ plate_number: newPlateNumber })
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        location.reload();
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (error) {
+                    console.error('Error editing plate:', error);
+                    alert('Error editing plate');
+                }
+            }
+        
+            async function deletePlate(plateId) {
+                try {
+                    const response = await fetch(`/delete/${plateId}/`, {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        document.getElementById(`row-${plateId}`).remove();
+                        alert(data.message);
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (error) {
+                    console.error('Error deleting plate:', error);
+                    alert('Error deleting plate');
+                }
+            }
+        
+            cameraBtn.addEventListener('click', initCamera);
+            stopBtn.addEventListener('click', stopCamera);
+            captureBtn.addEventListener('click', captureImage);
+        
+            mediaInput.addEventListener('change', function () {
+                const file = mediaInput.files[0];
+                if (file) {
+                    uploadImage(file);
+                }
+            });
+        
+            uploadBtn.addEventListener('click', function () {
+                const spinner = document.createElement('div');
+                spinner.className = 'spinner-border text-primary';
+                spinner.role = 'status';
+                document.body.appendChild(spinner);
+
+                // Simulate server request
+                setTimeout(() => {
+                    spinner.remove();
+                    showNotification('Tải lên và phát hiện thành công!', 'success');
+                }, 2000);
+            });
+        
+            addPlateBtn.addEventListener('click', function () {
+                const plateInput = document.getElementById('newPlate').value.trim();
+                if (plateInput === '') {
+                    showNotification('Biển số không được để trống.', 'danger');
+                    return;
+                }
+                if (!/^[A-Z0-9]+$/.test(plateInput)) {
+                    showNotification('Biển số không hợp lệ.', 'danger');
+                    return;
+                }
+            });
+        
+            saveEditBtn.addEventListener('click', function () {
+                const newPlateNumber = editPlateInput.value.trim();
+                if (newPlateNumber && currentEditId !== null) {
+                    editPlate(currentEditId, newPlateNumber);
+                } else {
+                    alert('Please enter a valid plate number.');
+                }
+            });
+        
+            plateTable.addEventListener('click', function (event) {
+                if (event.target.classList.contains('edit-btn')) {
+                    currentEditId = event.target.dataset.id;
+                    const currentPlateNumber = event.target.dataset.plate;
+                    editPlateInput.value = currentPlateNumber;
+                    const editModal = new bootstrap.Modal(document.getElementById('editPlateModal'));
+                    editModal.show();
+                } else if (event.target.classList.contains('delete-btn')) {
+                    const plateId = event.target.dataset.id;
+                    deletePlate(plateId);
+                }
+            });
+        });
+
+        function showNotification(message, type = 'success') {
+            const notification = document.createElement('div');
+            notification.className = `toast align-items-center text-bg-${type} border-0`;
+            notification.role = 'alert';
+            notification.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">
+                        ${message}
+                    </div>
+                    <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            `;
+            document.body.append(notification);
+            const toast = new bootstrap.Toast(notification);
+            toast.show();
+            setTimeout(() => notification.remove(), 3000);
+            
+        }
+        
+        let debounceTimer;
+        document.querySelector('[name="q"]').addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                this.form.submit();
+            }, 300);  // Chỉ gửi yêu cầu sau 300ms khi người dùng ngừng nhập
+        });
+
+
+        document.getElementById('addPlateBtn').addEventListener('click', function() {
+            const plateInput = document.getElementById('newPlate').value.trim();
+            if (plateInput === '') {
+                showNotification('Biển số không được để trống.', 'danger');
+                return;
+            }
+            if (!/^[A-Z0-9]+$/.test(plateInput)) {
+                showNotification('Biển số không hợp lệ.', 'danger');
+                return;
+            }
+            // Proceed with adding plate
+        });
+
+        document.getElementById('uploadBtn').addEventListener('click', function() {
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner-border text-primary';
+            spinner.role = 'status';
+            document.body.appendChild(spinner);
+        
+            // Simulate server request
+            setTimeout(() => {
+                spinner.remove();
+                showNotification('Tải lên và phát hiện thành công!', 'success');
+            }, 2000);
+        });
+
+        function updatePlateList(newPlate) {
+            const plateTable = document.getElementById('plateTable');
+            const newRow = document.createElement('tr');
+            newRow.innerHTML = `
+                <td>${plateTable.rows.length + 1}</td>
+                <td>${newPlate.plate_number}</td>
+                <td>${new Date().toLocaleString()}</td>
+                <td>
+                    <button class="btn btn-warning btn-sm edit-btn" data-id="${newPlate.id}" data-plate="${newPlate.plate_number}">Edit</button>
+                    <button class="btn btn-danger btn-sm delete-btn" data-id="${newPlate.id}">Delete</button>
+                </td>
+            `;
+            plateTable.appendChild(newRow);
+        }
+        
+        // Camera controls
+        let stream;
+        document.getElementById('cameraBtn').addEventListener('click', async function() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const video = document.getElementById('mediaDisplay');
+                video.srcObject = stream;
+                video.play();
+                document.getElementById('stopBtn').style.display = 'block';
+            } catch (err) {
+                showNotification('Không thể mở camera.', 'danger');
+            }
+       
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', function() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                document.getElementById('mediaDisplay').srcObject = null;
+                document.getElementById('stopBtn').style.display = 'none';
+            }
+        });
+
+        window.addEventListener('beforeunload', function() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+       
+         // Fetch and display all plates
+        fetchPlates();
+
+        // Add plate event
+        addPlateBtn.addEventListener('click', function() {
+            const plateNumber = plateResult.value.trim();
+            if (plateNumber) {
+                addPlate(plateNumber);
+            } else {
+                alert('Please detect a plate number first.');
+            }
+        });
+
+        // Function to fetch and display plates
+        async function fetchPlates() {
+            const response = await fetch('/plates/api/');
+            const plates = await response.json();
+            plateList.innerHTML = '';
+            plates.forEach(plate => {
+                appendPlateToList(plate);
+            });
+        }
+
+        // Function to add a plate
+        async function addPlate(plateNumber) {
+            const response = await fetch('/plates/api/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ plate_number: plateNumber })
+            });
+
+            if (response.ok) {
+                const newPlate = await response.json();
+                appendPlateToList(newPlate);
+                alert('Plate added successfully.');
+            } else {
+                alert('Error adding plate.');
+            }
+        }
+
+        // Function to delete a plate
+        async function deletePlate(id) {
+            const response = await fetch(`/plates/api/${id}/`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                document.getElementById(`plate-${id}`).remove();
+                alert('Plate deleted successfully.');
+            } else {
+                alert('Error deleting plate.');
+            }
+        }
+
+        // Function to update a plate
+        async function updatePlate(id, newPlateNumber) {
+            const response = await fetch(`/plates/api/${id}/`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ plate_number: newPlateNumber })
+            });
+
+            if (response.ok) {
+                const updatedPlate = await response.json();
+                document.getElementById(`plate-${id}`).querySelector('.plate-number').textContent = updatedPlate.plate_number;
+                alert('Plate updated successfully.');
+            } else {
+                alert('Error updating plate.');
+            }
+        }
+
+        // Utility function to append a plate to the list
+        function appendPlateToList(plate) {
+            const plateItem = document.createElement('div');
+            plateItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+            plateItem.id = `plate-${plate.id}`;
+
+            const plateNumberSpan = document.createElement('span');
+            plateNumberSpan.className = 'plate-number';
+            plateNumberSpan.textContent = plate.plate_number;
+
+            const editButton = document.createElement('button');
+            editButton.className = 'btn btn-sm btn-warning';
+            editButton.textContent = 'Edit';
+            editButton.addEventListener('click', function() {
+                const newPlateNumber = prompt('Enter new plate number:', plate.plate_number);
+                if (newPlateNumber) {
+                    updatePlate(plate.id, newPlateNumber.trim());
+                }
+            });
+
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'btn btn-sm btn-danger';
+            deleteButton.textContent = 'Delete';
+            deleteButton.addEventListener('click', function() {
+                if (confirm('Are you sure you want to delete this plate?')) {
+                    deletePlate(plate.id);
+                }
+            });
+
+            plateItem.appendChild(plateNumberSpan);
+            plateItem.appendChild(editButton);
+            plateItem.appendChild(deleteButton);
+
+            plateList.appendChild(plateItem);
+        }
+
+        cameraBtn.addEventListener('click', async function() {
+            await initCamera();
+        });
+    
+        stopBtn.addEventListener('click', function() {
+            stopCamera();
+        });
+    
+        captureBtn.addEventListener('click', function() {
+            captureImage();
+        });
+    
+        uploadBtn.addEventListener('click', function() {
+            if (mediaInput.files.length > 0) {
+                const file = mediaInput.files[0];
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    imagePreview.src = event.target.result;
+                    imagePreview.onload = function() {
+                        processImage(imagePreview);
+                    };
+                };
+                reader.readAsDataURL(file);
+            } else {
+                alert('Please select an image to upload.');
+            }
+        });
+    
+        async function initCamera() {
+            try {
+                resetMediaDisplay();
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                mediaDisplay.srcObject = stream;
+                mediaDisplay.play();
+                toggleElements(true);
+            } catch (err) {
+                console.error('Camera error:', err);
+                alert('Cannot access camera: ' + err.message);
+            }
+        }
+    
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            mediaDisplay.srcObject = null;
+            toggleElements(false);
+        }
+    
+        function captureImage() {
+            context.drawImage(mediaDisplay, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/png');
+            plateResult.value = 'Detecting...'; // Placeholder while processing the image
+            processCapturedImage(imageData);
+        }
+    
+        function processCapturedImage(imageData) {
+            console.log('Captured image data:', imageData);
+            setTimeout(() => {
+                plateResult.value = 'ABC1234'; // Replace with actual detection result
+            }, 2000);
+        }
+    
+        function processImage(image) {
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/png');
+            plateResult.value = 'Detecting...'; // Placeholder while processing the image
+            processCapturedImage(imageData);
+        }
+    
+        function toggleElements(isCameraActive) {
+            cameraBtn.style.display = isCameraActive ? 'none' : 'block';
+            stopBtn.style.display = isCameraActive ? 'block' : 'none';
+            captureBtn.style.display = isCameraActive ? 'block' : 'none';
+            mediaDisplay.style.display = isCameraActive ? 'block' : 'none';
+            canvas.style.display = isCameraActive ? 'block' : 'none';
+            imagePreview.style.display = isCameraActive ? 'none' : 'block';
+        }
+    
+        function resetMediaDisplay() {
+            mediaDisplay.srcObject = null;
+            imagePreview.src = '';
+        } 
+
+        function ajaxPost(url, data, onSuccess, onError) {
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(onSuccess)
+            .catch(onError);
+        }
+        
+    });
+    
+    
+    
+    
+    
+</>
+{% endblock %}

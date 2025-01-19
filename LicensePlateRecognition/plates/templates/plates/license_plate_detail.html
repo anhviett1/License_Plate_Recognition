@@ -1,0 +1,17 @@
+<!-- plates/templates/plates/license_plate_detail.html -->
+{% extends 'plates/base.html' %}
+
+{% block content %}
+<h1>Chi tiết Biển Số</h1>
+<table class="table table-bordered">
+    <tr>
+        <th>Biển số</th>
+        <td>{{ plate.plate_number }}</td>
+    </tr>
+    <tr>
+        <th>Thời gian nhận diện</th>
+        <td>{{ plate.detected_at }}</td>
+    </tr>
+</table>
+<a href="{% url 'license_plate_list' %}" class="btn btn-secondary">Quay lại danh sách</a>
+{% endblock %}
